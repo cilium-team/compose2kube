@@ -79,8 +79,8 @@ func main() {
 			},
 		}
 
-		if service.CpuShares != 0 {
-			pod.Spec.Containers[0].Resources.Limits[api.ResourceCPU] = *resource.NewQuantity(service.CpuShares, "decimalSI")
+		if service.CPUShares != 0 {
+			pod.Spec.Containers[0].Resources.Limits[api.ResourceCPU] = *resource.NewQuantity(service.CPUShares, "decimalSI")
 		}
 
 		if service.MemLimit != 0 {
@@ -151,7 +151,7 @@ func main() {
 
 func replicationController(name string, pod *api.Pod) *api.ReplicationController {
 	return &api.ReplicationController{
-		TypeMeta: api.TypeMeta{
+		TypeMeta: unversioned.TypeMeta{
 			Kind:       "ReplicationController",
 			APIVersion: "v1",
 		},
