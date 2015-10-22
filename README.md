@@ -67,9 +67,9 @@ $ compose2kube -compose-file docker-compose.yml -output-dir output
 ```
 
 ```
-output/cache-rc.yaml
-output/database-rc.yaml
-output/web-rc.yaml
+output/cache-rc.json
+output/database-rc.json
+output/web-rc.json
 ```
 
 ### Launch the Kubernetes replication controllers

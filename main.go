@@ -140,7 +140,7 @@ func main() {
 
 		// Save the replication controller for the Docker compose service to the
 		// configs directory.
-		outputFileName := fmt.Sprintf("%s-%s.yaml", name, objType)
+		outputFileName := fmt.Sprintf("%s-%s.json", name, objType)
 		outputFilePath := filepath.Join(outputDir, outputFileName)
 		if err := ioutil.WriteFile(outputFilePath, data, 0644); err != nil {
 			log.Fatalf("Failed to write replication controller %s: %v", outputFileName, err)
