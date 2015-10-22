@@ -2,7 +2,7 @@ echo:
   image: debian
   command: echo hello
   restart: no
-  environment: 
+  environment:
     test: hmm
     derp: hmm2
   cpu_shares: 123
