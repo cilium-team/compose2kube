@@ -14,21 +14,21 @@ limitations under the License.
 package main
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
-	"strconv"
-	"strings"
 
-	"github.com/docker/libcompose/project"
-	"k8s.io/kubernetes/pkg/api"
-	"k8s.io/kubernetes/pkg/api/resource"
-	"k8s.io/kubernetes/pkg/api/unversioned"
+	c2k "github.com/cilium-team/compose2kube/pkg/compose2kube"
 )
+
+type K8sConfig struct {
+	Name     string
+	ObjType  string
+	JsonData []byte
+}
 
 var (
 	composeFile string
@@ -43,131 +43,28 @@ func init() {
 func main() {
 	flag.Parse()
 
-	p := project.NewProject(&project.Context{
-		ProjectName: "kube",
-		ComposeFile: composeFile,
-	})
-
-	if err := p.Parse(); err != nil {
-		log.Fatalf("Failed to parse the compose project from %s: %v", composeFile, err)
+	file, err := os.Open(composeFile)
+	if err != nil {
+		log.Fatal(err)
 	}
+	k8sConfigs, err := c2k.Compose2kube(file)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
-		log.Fatalf("Failed to create the output directory %s: %v", outputDir, err)
+		log.Fatal("Failed to create the output directory %s: %v", outputDir, err)
 	}
 
-	for name, service := range p.Configs {
-		pod := &api.Pod{
-			TypeMeta: unversioned.TypeMeta{
-				Kind:       "Pod",
-				APIVersion: "v1",
-			},
-			ObjectMeta: api.ObjectMeta{
-				Name:   name,
-				Labels: map[string]string{"service": name},
-			},
-			Spec: api.PodSpec{
-				Containers: []api.Container{
-					{
-						Name:  name,
-						Image: service.Image,
-						Args:  service.Command.Slice(),
-						Resources: api.ResourceRequirements{
-							Limits: api.ResourceList{},
-						},
-					},
-				},
-			},
-		}
-
-		if service.CPUShares != 0 {
-			pod.Spec.Containers[0].Resources.Limits[api.ResourceCPU] = *resource.NewQuantity(service.CPUShares, "decimalSI")
-		}
-
-		if service.MemLimit != 0 {
-			pod.Spec.Containers[0].Resources.Limits[api.ResourceMemory] = *resource.NewQuantity(service.MemLimit, "decimalSI")
-		}
-
-		// Configure the environment variables
-		var environment []api.EnvVar
-		for _, envs := range service.Environment.Slice() {
-			value := strings.Split(envs, "=")
-			environment = append(environment, api.EnvVar{Name: value[0], Value: value[1]})
-		}
-
-		pod.Spec.Containers[0].Env = environment
-
-		// Configure the container ports.
-		var ports []api.ContainerPort
-		for _, port := range service.Ports {
-			portNumber, err := strconv.Atoi(port)
-			if err != nil {
-				log.Fatalf("Invalid container port %s for service %s", port, name)
-			}
-			ports = append(ports, api.ContainerPort{ContainerPort: portNumber})
-		}
-
-		pod.Spec.Containers[0].Ports = ports
-
-		// Configure the container restart policy.
-		var (
-			rc      *api.ReplicationController
-			objType string
-			data    []byte
-			err     error
-		)
-		switch service.Restart {
-		case "", "always":
-			objType = "rc"
-			rc = replicationController(name, pod)
-			pod.Spec.RestartPolicy = api.RestartPolicyAlways
-			data, err = json.MarshalIndent(rc, "", "  ")
-		case "no", "false":
-			objType = "pod"
-			pod.Spec.RestartPolicy = api.RestartPolicyNever
-			data, err = json.MarshalIndent(pod, "", "  ")
-		case "on-failure":
-			objType = "rc"
-			rc = replicationController(name, pod)
-			pod.Spec.RestartPolicy = api.RestartPolicyOnFailure
-			data, err = json.MarshalIndent(rc, "", "  ")
-		default:
-			log.Fatalf("Unknown restart policy %s for service %s", service.Restart, name)
-		}
-
-		if err != nil {
-			log.Fatalf("Failed to marshal the replication controller: %v", err)
-		}
-
+	for _, k8c := range k8sConfigs {
 		// Save the replication controller for the Docker compose service to the
 		// configs directory.
-		outputFileName := fmt.Sprintf("%s-%s.json", name, objType)
+		outputFileName := fmt.Sprintf("%s-%s.json", k8c.Name, k8c.ObjType)
 		outputFilePath := filepath.Join(outputDir, outputFileName)
-		if err := ioutil.WriteFile(outputFilePath, data, 0644); err != nil {
+		if err := ioutil.WriteFile(outputFilePath, k8c.JsonData, 0644); err != nil {
 			log.Fatalf("Failed to write replication controller %s: %v", outputFileName, err)
 		}
 		fmt.Println(outputFilePath)
 	}
 }
 
-func replicationController(name string, pod *api.Pod) *api.ReplicationController {
-	return &api.ReplicationController{
-		TypeMeta: unversioned.TypeMeta{
-			Kind:       "ReplicationController",
-			APIVersion: "v1",
-		},
-		ObjectMeta: api.ObjectMeta{
-			Name:   name,
-			Labels: map[string]string{"service": name},
-		},
-		Spec: api.ReplicationControllerSpec{
-			Replicas: 1,
-			Selector: map[string]string{"service": name},
-			Template: &api.PodTemplateSpec{
-				ObjectMeta: api.ObjectMeta{
-					Labels: map[string]string{"service": name},
-				},
-				Spec: pod.Spec,
-			},
-		},
-	}
-}
